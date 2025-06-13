@@ -1,0 +1,146 @@
+{% include 'layout.html' %}
+
+<div class="container mt-5">
+  <h3>Chat with AI-GenZ</h3>
+
+  <div>
+    <div class="card text-center mt-3">
+      <div class="card-header">History</div>
+      <div class="card-body chat-history" id="chatHistory">
+        <!-- auto populate here -->
+        {% for response in chat_responses %}
+        <div
+          class="{{ 'chat-message user-input' if loop.index0 is even else 'chat-message ai-response' }}"
+        >
+          {{ response }}
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+  <!-- <a href="/image" class="btn btn-outline-secondary mt-4 mb-4">
+    Switch to Image
+  </a> -->
+  <div class="container" id="footer">
+    <div class="input_group mb-3">
+      <input class="form-control" placeholder="Add input here" id="userInput" />
+      <button
+        class="btn btn-outline-primary mt-2"
+        type="button"
+        id="sendButton"
+      >
+        Send
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- DOM & WebSocket ---------- */
+  var websocketString = "";
+  if (window.location.hostname === "127.0.0.1") {
+    // Đang chạy local, kết nối đến server WebSocket local (không có SSL)
+    websocketString = "ws://localhost:8000/ws";
+  } else {
+    // Đang chạy trên server có domain (ví dụ: yourdomain.com), phải dùng SSL
+    websocketString = `wss://${window.location.hostname}/ws`;
+  }
+
+  var ws = new WebSocket(websocketString);
+
+  var sendButton = document.getElementById("sendButton");
+  var userInput = document.getElementById("userInput");
+  var chatHistory = document.getElementById("chatHistory");
+
+  let lastUserMessageDiv = null;
+  let isNewUserInput = true; // true khi vừa gửi message mới
+
+  /* ---------- Tự động cuộn ---------- */
+  function scrollToBottom() {
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  /* ---------- Khôi phục lịch sử sau F5 ---------- */
+  window.addEventListener("DOMContentLoaded", () => {
+    const saved = JSON.parse(sessionStorage.getItem("chatHistory") || "[]");
+    for (const item of saved) {
+      const div = document.createElement("div");
+      div.className =
+        item.role === "user"
+          ? "chat-message user-input"
+          : "chat-message ai-response";
+      div.textContent = item.message;
+      chatHistory.appendChild(div);
+    }
+    scrollToBottom();
+  });
+
+  /* ---------- Lưu lịch sử vào sessionStorage ---------- */
+  function save(role, message, append = false) {
+    const data = JSON.parse(sessionStorage.getItem("chatHistory") || "[]");
+    if (append && data.length) {
+      // nối thêm chunk vào tin nhắn cuối
+      data[data.length - 1].message += message;
+    } else {
+      data.push({ role, message });
+    }
+    sessionStorage.setItem("chatHistory", JSON.stringify(data));
+  }
+
+  /* ---------- Nhận phản hồi AI ---------- */
+  ws.onmessage = (event) => {
+    const message = event.data.trim();
+
+    if (lastUserMessageDiv && !isNewUserInput) {
+      // tiếp tục chunk cũ
+      lastUserMessageDiv.textContent += message;
+      save("bot", message, /* append = */ true);
+    } else {
+      // chunk mới
+      const aiDiv = document.createElement("div");
+      aiDiv.className = "chat-message ai-response";
+      aiDiv.textContent = message;
+      chatHistory.appendChild(aiDiv);
+
+      lastUserMessageDiv = aiDiv;
+      save("bot", message);
+    }
+
+    isNewUserInput = false;
+    scrollToBottom();
+  };
+
+  /* ---------- Gửi tin nhắn người dùng ---------- */
+  sendButton.onclick = () => {
+    const message = userInput.value.trim();
+    if (!message) return;
+
+    if (ws.readyState === WebSocket.OPEN) {
+      /* hiển thị tin người dùng */
+      const userDiv = document.createElement("div");
+      userDiv.className = "chat-message user-input";
+      userDiv.textContent = message;
+      chatHistory.appendChild(userDiv);
+      save("user", message);
+
+      /* chỗ để AI điền câu trả lời */
+      const aiDiv = document.createElement("div");
+      aiDiv.className = "chat-message ai-response";
+      aiDiv.textContent = "";
+      chatHistory.appendChild(aiDiv);
+
+      /* gửi lên server & chuẩn bị ghép chunk */
+      ws.send(message);
+      userInput.value = "";
+      lastUserMessageDiv = aiDiv;
+      isNewUserInput = true;
+      scrollToBottom();
+    } else {
+      alert("WebSocket chưa sẵn sàng hoặc đã bị ngắt kết nối!");
+    }
+  };
+
+  /* ---------- Thông báo kết nối ---------- */
+  ws.onclose = () => alert("Kết nối WebSocket đã đóng.");
+  ws.onerror = (e) => console.error("Lỗi WebSocket:", e);
+</script>
