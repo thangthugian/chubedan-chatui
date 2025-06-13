@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: chubedan-chatui
+    env: python
+    pythonVersion: 3.11.9
+    buildCommand: "poetry install"
+    startCommand: "uvicorn main:app --host 0.0.0.0 --port 3000"
